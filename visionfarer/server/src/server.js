@@ -4,6 +4,16 @@ const connectDB = require('./config/db');
 
 const PORT = process.env.PORT || 5000;
 
+const { validateEnv } = require('./utils/envValidator');
+
+try {
+  // Validate Phase 1 environment requirements
+  validateEnv(['MONGO_URI', 'JWT_SECRET']);
+} catch (error) {
+  console.error(`ERROR: ${error.message}`);
+  process.exit(1);
+}
+
 // Connect to MongoDB
 connectDB().then(() => {
   // Start the server once DB is connected

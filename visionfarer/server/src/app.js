@@ -10,7 +10,14 @@ const app = express();
 
 // Security Middlewares
 app.use(helmet());
-app.use(cors());
+
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    process.env.FRONTEND_ORIGIN
+  ].filter(Boolean),
+  credentials: true
+}));
 
 // Body Parsing
 app.use(express.json());
@@ -27,10 +34,6 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Health Check Endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
-});
 
 // API Routes
 const routes = require('./routes/index');
