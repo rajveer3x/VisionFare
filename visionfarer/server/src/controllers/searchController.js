@@ -1,54 +1,163 @@
+const axios = require('axios');
 const { searchSchema } = require('../validation/searchSchema');
+const { ValidationError, ExternalServiceError, NotFoundError } = require('../utils/customErrors');
+const { rapidApiClient } = require('../services/travelApiClient');
+const { getCached, setCache, buildSearchCacheKey } = require('../services/cacheService');
+const {
+  normalizeBusResults,
+  normalizeTrainResults,
+  normalizeFlightResults,
+  sortByPriceAscending,
+  sliceTopN
+} = require('../adapters/travelDataAdapter');
+const Route = require('../models/Route');
+const PriceSnapshot = require('../models/PriceSnapshot');
+const logger = require('../utils/logger');
 
 const searchRoutes = async (req, res, next) => {
   try {
+    // STEP 1 — Validate input
     const { error, value } = searchSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ message: error.details[0].message });
+      throw new ValidationError(error.details[0].message);
     }
 
     const { origin, destination, travelDate, transportType } = value;
 
-    // Hardcoded mock response with exactly 8 fake results
-    const rawResults = [
-      { id: '101', operatorName: 'RSRTC Express', price: 450, departureTime: '06:00 AM', arrivalTime: '12:00 PM', duration: '6h 00m', availableSeats: 32 },
-      { id: '102', operatorName: 'IntrCity SmartBus', price: 950, departureTime: '08:00 AM', arrivalTime: '01:30 PM', duration: '5h 30m', availableSeats: 15 },
-      { id: '103', operatorName: 'Zingbus AC Sleeper', price: 1200, departureTime: '10:00 PM', arrivalTime: '04:00 AM', duration: '6h 00m', availableSeats: 8 },
-      { id: '104', operatorName: 'VRL Travels', price: 600, departureTime: '09:00 AM', arrivalTime: '04:00 PM', duration: '7h 00m', availableSeats: 45 },
-      { id: '105', operatorName: 'NueGo Electric', price: 800, departureTime: '11:00 AM', arrivalTime: '04:30 PM', duration: '5h 30m', availableSeats: 22 },
-      { id: '106', operatorName: 'RedBus Premium', price: 1500, departureTime: '07:30 PM', arrivalTime: '01:00 AM', duration: '5h 30m', availableSeats: 10 },
-      { id: '107', operatorName: 'Mahalaxmi Travels', price: 350, departureTime: '02:00 PM', arrivalTime: '09:00 PM', duration: '7h 00m', availableSeats: 18 },
-      { id: '108', operatorName: 'Gangester Travels Volvo', price: 1750, departureTime: '11:00 PM', arrivalTime: '04:30 AM', duration: '5h 30m', availableSeats: 5 }
-    ];
+    // STEP 2 — Check cache
+    const cacheKey = buildSearchCacheKey(origin, destination, travelDate, transportType);
+    const cachedData = await getCached(cacheKey);
+    
+    if (cachedData) {
+      return res.status(200).json({ 
+        success: true, 
+        source: 'cache', 
+        ...cachedData 
+      });
+    }
 
-    // Sort all 8 results by price ascending
-    rawResults.sort((a, b) => a.price - b.price);
+    // STEP 3 — Fetch from external API
+    let rawApiResponse;
+    try {
+      let endpoint = '/buses';
+      if (transportType === 'train') endpoint = '/trains';
+      if (transportType === 'flight') endpoint = '/flights';
 
-    // The top 5 cheapest: set aiRecommendation to "PENDING" and aiConfidence to null.
-    // Results 6-8: set aiRecommendation to "NOT_ANALYZED".
-    const processedResults = rawResults.map((trip, index) => {
-      if (index < 5) {
-        return {
-          ...trip,
-          aiRecommendation: 'PENDING',
-          aiConfidence: null
-        };
-      } else {
-        return {
-          ...trip,
-          aiRecommendation: 'NOT_ANALYZED'
-        };
+      const response = await rapidApiClient.get(endpoint, {
+        params: { origin, destination, date: travelDate }
+      });
+      rawApiResponse = response.data;
+    } catch (err) {
+      throw new ExternalServiceError("Unable to fetch live prices. Please try again.");
+    }
+
+    // STEP 4 — Normalize data
+    let normalizedResults = [];
+    if (transportType === 'bus') {
+      normalizedResults = normalizeBusResults(rawApiResponse, origin, destination);
+    } else if (transportType === 'train') {
+      normalizedResults = normalizeTrainResults(rawApiResponse, origin, destination);
+    } else if (transportType === 'flight') {
+      normalizedResults = normalizeFlightResults(rawApiResponse, origin, destination);
+    }
+
+    if (normalizedResults.length === 0) {
+      throw new NotFoundError("No routes found for this search.");
+    }
+
+    // STEP 5 — Sort & split
+    const sortedResults = sortByPriceAscending(normalizedResults);
+    let { topRoutes, remaining } = sliceTopN(sortedResults, 5);
+
+    // STEP 6 — Request AI predictions
+    try {
+      if (!process.env.AI_SERVICE_URL) {
+        throw new Error("AI_SERVICE_URL not configured.");
       }
-    });
+      
+      const aiResponse = await axios.post(
+        `${process.env.AI_SERVICE_URL}/predict`, 
+        { routes: topRoutes },
+        { timeout: 5000 }
+      );
+      
+      const aiPredictions = aiResponse.data?.predictions || [];
 
-    const topResults = processedResults.slice(0, 5);
-    const otherResults = processedResults.slice(5);
+      // Merge prediction data back into topRoutes by matching on externalId
+      topRoutes = topRoutes.map(route => {
+        const prediction = aiPredictions.find(p => p.externalId === route.externalId);
+        if (prediction) {
+          return {
+            ...route,
+            aiRecommendation: prediction.aiRecommendation || 'PENDING',
+            aiConfidence: prediction.aiConfidence || null
+          };
+        }
+        return route;
+      });
 
+    } catch (err) {
+      logger.warn(`[AI SERVICE] Unavailable — returning results without predictions. Reason: ${err.message}`);
+      topRoutes = topRoutes.map(route => ({
+        ...route,
+        aiRecommendation: 'PENDING'
+      }));
+    }
+
+    const fetchedAt = new Date();
+
+    const responsePayload = {
+      count: sortedResults.length,
+      fetchedAt,
+      topResults: topRoutes,
+      otherResults: remaining
+    };
+
+    // STEP 7 — Save to MongoDB (Background)
+    (async () => {
+        try {
+          // Verify user auth exists if you strictly tied routes to users - assuming it's optional per Route schema 
+          // createdBy is optional in Route.js schema `type: mongoose.Schema.Types.ObjectId`
+          const routeDoc = await Route.create({
+            origin,
+            destination,
+            travelDate,
+            transportType,
+            createdBy: req.user ? req.user._id : undefined
+          });
+
+          // Insert snapshots for all returned properties
+          const allRoutes = [...topRoutes, ...remaining];
+          const snapshotsToInsert = allRoutes.map(route => ({
+            routeId: routeDoc._id,
+            operatorName: route.operatorName,
+            price: route.price,
+            currency: route.currency,
+            departureTime: route.departureTime,
+            arrivalTime: route.arrivalTime,
+            duration: route.duration,
+            availableSeats: route.availableSeats,
+            aiRecommendation: route.aiRecommendation,
+            aiConfidence: route.aiConfidence,
+            fetchedAt: fetchedAt
+          }));
+
+          if (snapshotsToInsert.length > 0) {
+            await PriceSnapshot.insertMany(snapshotsToInsert);
+          }
+        } catch (dbErr) {
+          logger.error(`[DB SAVE ERROR] Failed to perform background save: ${dbErr.message}`);
+        }
+    })(); // Immediately invokes Promise, does not await
+
+    // STEP 8 — Cache the result
+    await setCache(cacheKey, responsePayload, 900); // 15 minutes TTL
+
+    // STEP 9 — Respond
     return res.status(200).json({
       success: true,
-      count: processedResults.length,
-      topResults,
-      otherResults
+      source: 'live',
+      ...responsePayload
     });
 
   } catch (err) {

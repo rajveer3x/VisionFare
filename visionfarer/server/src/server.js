@@ -8,7 +8,7 @@ const { validateEnv } = require('./utils/envValidator');
 
 try {
   // Validate Phase 1 environment requirements
-  validateEnv(['MONGO_URI', 'JWT_SECRET']);
+  validateEnv();
 } catch (error) {
   console.error(`ERROR: ${error.message}`);
   process.exit(1);
