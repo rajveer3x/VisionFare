@@ -32,6 +32,10 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// API Routes
+const routes = require('./routes/index');
+app.use(routes);
+
 // Unknown API routes
 app.use(notFoundHandler);
 
