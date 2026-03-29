@@ -1,30 +1,33 @@
 import React, { useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react';
-import api from '../services/api';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import SearchForm from '../components/SearchForm';
 import ResultCard from '../components/ResultCard';
 import LoadingState from '../components/LoadingState';
+import SearchMeta from '../components/SearchMeta';
+import ErrorState from '../components/ErrorState';
+import { useSearchRoutes } from '../hooks/useSearchRoutes';
 
 export default function ResultsPage() {
   const location = useLocation();
-  // We strictly use the state passed from the router history initially
+  const navigate = useNavigate();
   const query = location.state?.query || null;
+  // Fallback to pre-fetched data if provided directly via SearchForm navigation State
+  const initialResultsData = location.state?.resultsData || null;
 
-  const fetchResults = async () => {
-    if (!query) return null;
-    const { data } = await api.post('/search', query);
-    return data;
-  };
+  const { mutate: searchRoutes, data: hookData, isLoading, isError, error } = useSearchRoutes();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['searchResults', query],
-    queryFn: fetchResults,
-    enabled: !!query,
-    refetchOnWindowFocus: false,
-    retry: 1
-  });
+  // Prefer aggressively pushed results from SearchForm, otherwise trust the mutation state
+  const data = initialResultsData || hookData;
+
+  useEffect(() => {
+    // If the user navigates here via direct link or refresh without state, kick them back
+    // However, if they have query state but NO results yet (e.g. they refreshed manually but browser kept state),
+    // trigger the mutation natively to recover seamlessly.
+    if (query && !data && !isLoading && !isError) {
+      searchRoutes(query);
+    }
+  }, [query, data, isLoading, isError, searchRoutes]);
 
   return (
     <div className="min-h-screen bg-darkBase p-4 md:p-8">
@@ -46,11 +49,6 @@ export default function ResultsPage() {
 
         {/* Main Content Area */}
         <div className="space-y-6 pt-4">
-          <div className="flex items-center justify-between text-slate-400 font-display text-xs uppercase tracking-widest border-l-2 border-cyan-500 pl-3 py-1">
-             <span>Network Scan Output</span>
-             {data?.topResults && <span>{data.count} exact hits</span>}
-          </div>
-
           {!query && (
              <div className="p-8 text-center text-slate-500 font-display uppercase tracking-widest border border-slate-800 rounded flex flex-col items-center gap-3">
                <AlertTriangle className="w-6 h-6 text-amber-500/50" />
@@ -61,36 +59,45 @@ export default function ResultsPage() {
           {isLoading && query && <LoadingState />}
 
           {isError && (
-            <div className="bg-red-950/20 border border-red-900 rounded-lg p-8 flex flex-col items-center justify-center gap-4 text-red-500 font-display text-sm text-center">
-               <AlertTriangle className="w-10 h-10 shadow-lg text-red-500" />
-               <h3 className="uppercase tracking-widest text-lg font-bold">Network Request Failed</h3>
-               <p className="text-xs opacity-80 uppercase font-sans tracking-wide max-w-sm">{error?.response?.data?.message || error.message || "Failed to reach backend infrastructure. Check API mappings."}</p>
-               <button onClick={() => refetch()} className="mt-4 text-white bg-red-900/60 shadow-[0_0_15px_-3px_rgba(220,38,38,0.5)] px-6 py-3 hover:bg-red-800 transition-colors uppercase tracking-widest text-xs flex items-center gap-2 rounded">
-                 <RefreshCw className="w-3.5 h-3.5" /> Retry Scan Sequence
-               </button>
-            </div>
+             <ErrorState 
+               error={error} 
+               onRetry={() => searchRoutes(query)} 
+             />
           )}
 
           {data?.success && data.topResults && (
-            <div className="space-y-12">
+            <div className="space-y-8">
+               
+               <SearchMeta 
+                 count={data.count} 
+                 origin={query.origin} 
+                 destination={query.destination} 
+                 travelDate={query.travelDate} 
+                 source={data.source} 
+               />
+
                <div className="space-y-4">
                  <h2 className="text-sm font-display text-cyan-400 tracking-widest uppercase mb-4 flex items-center gap-2.5">
                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_2px_rgba(34,211,238,0.5)]"></span>
                    Optimal Trajectories
                  </h2>
                  {data.topResults.map(trip => (
-                   <ResultCard key={trip.id} trip={trip} />
+                   <div key={trip.externalId || trip.id}>
+                     <ResultCard trip={trip} />
+                   </div>
                  ))}
                </div>
                
                {data.otherResults && data.otherResults.length > 0 && (
-                 <div className="space-y-4 pt-8 border-t border-slate-800">
-                    <h2 className="text-xs font-display text-slate-500 tracking-widest uppercase mb-4 pl-1">
-                      Alternate / Unanalyzed Options
-                    </h2>
+                 <div className="space-y-4 pt-10 border-t border-slate-800 relative">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-darkBase px-4 text-xs font-display text-slate-500 tracking-widest uppercase">
+                      More Options
+                    </div>
+                    
                     {data.otherResults.map(trip => (
-                      <div key={trip.id} className="opacity-60 saturate-50 hover:saturate-100 hover:opacity-100 transition-all duration-300">
-                        <ResultCard trip={trip} />
+                      <div key={trip.externalId || trip.id} className="opacity-60 saturate-50 hover:saturate-100 hover:opacity-100 transition-all duration-300">
+                        {/* Wipe badges for remaining options safely mapping to default nulls/UNDEFINED expectations */}
+                        <ResultCard trip={{ ...trip, aiRecommendation: 'NOT_ANALYZED', aiConfidence: null }} />
                       </div>
                     ))}
                  </div>

@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { Search, PlaneTakeoff, Bus, TrainFront } from 'lucide-react';
+import { Search, PlaneTakeoff, Bus, TrainFront, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useSearchRoutes } from '../hooks/useSearchRoutes';
 
 export default function SearchForm({ initialQuery }) {
   const navigate = useNavigate();
+  const { mutate: searchRoutes, isLoading: isSearching } = useSearchRoutes();
+  
   const [formData, setFormData] = useState(initialQuery || {
     origin: '',
     destination: '',
@@ -11,9 +14,41 @@ export default function SearchForm({ initialQuery }) {
     transportType: 'flight'
   });
 
+  const [formErrors, setFormErrors] = useState({});
+
+  const validateForm = () => {
+    const errors = {};
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (!formData.origin.trim()) errors.origin = "Origin is required.";
+    if (!formData.destination.trim()) errors.destination = "Destination is required.";
+    
+    if (formData.origin.trim() && formData.destination.trim()) {
+      if (formData.origin.trim().toLowerCase() === formData.destination.trim().toLowerCase()) {
+        errors.destination = "Origin and destination cannot be the same.";
+      }
+    }
+
+    if (!formData.travelDate) {
+      errors.travelDate = "Travel date is required.";
+    } else if (new Date(formData.travelDate) < new Date(todayStr)) {
+      errors.travelDate = "Travel date cannot be in the past.";
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    navigate('/search', { state: { query: formData } });
+    if (!validateForm()) return;
+
+    searchRoutes(formData, {
+      onSuccess: (data) => {
+        // Upon successful live fetch, forward everything securely to the result dashboard
+        navigate('/search', { state: { query: formData, resultsData: data } });
+      }
+    });
   };
 
   return (
@@ -50,51 +85,69 @@ export default function SearchForm({ initialQuery }) {
           <div className="space-y-2">
              <label className="text-[10px] md:text-xs font-display text-slate-500 uppercase tracking-widest pl-1">Origin Code</label>
              <input 
-               required
                type="text" 
                placeholder="DEB"
-               className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none rounded p-3.5 text-white placeholder-slate-700 transition-all uppercase font-display text-lg tracking-widest"
+               className={`w-full bg-slate-950/80 border ${formErrors.origin ? 'border-red-500/50' : 'border-slate-800 focus:border-cyan-500/50'} outline-none rounded p-3.5 text-white placeholder-slate-700 transition-all uppercase font-display text-lg tracking-widest`}
                value={formData.origin}
-               onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})}
-               minLength={2}
-               maxLength={100}
+               onChange={e => {
+                 setFormData({...formData, origin: e.target.value.toUpperCase()});
+                 if (formErrors.origin) setFormErrors({...formErrors, origin: null});
+               }}
              />
+             {formErrors.origin && <p className="text-red-500/80 text-[10px] uppercase font-display px-1">{formErrors.origin}</p>}
           </div>
           
           <div className="space-y-2">
              <label className="text-[10px] md:text-xs font-display text-slate-500 uppercase tracking-widest pl-1">Target Node</label>
              <input 
-               required
                type="text" 
                placeholder="JFK"
-               className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none rounded p-3.5 text-white placeholder-slate-700 transition-all uppercase font-display text-lg tracking-widest"
+               className={`w-full bg-slate-950/80 border ${formErrors.destination ? 'border-red-500/50' : 'border-slate-800 focus:border-cyan-500/50'} outline-none rounded p-3.5 text-white placeholder-slate-700 transition-all uppercase font-display text-lg tracking-widest`}
                value={formData.destination}
-               onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})}
-               minLength={2}
-               maxLength={100}
+               onChange={e => {
+                 setFormData({...formData, destination: e.target.value.toUpperCase()});
+                 if (formErrors.destination) setFormErrors({...formErrors, destination: null});
+               }}
              />
+             {formErrors.destination && <p className="text-red-500/80 text-[10px] uppercase font-display px-1">{formErrors.destination}</p>}
           </div>
           
           <div className="space-y-2">
              <label className="text-[10px] md:text-xs font-display text-slate-500 uppercase tracking-widest pl-1">System Time</label>
              <input 
-               required
                type="date" 
                min={new Date().toISOString().split('T')[0]}
-               className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none rounded p-3.5 text-slate-300 font-display transition-all [color-scheme:dark] flex-1"
+               className={`w-full bg-slate-950/80 border ${formErrors.travelDate ? 'border-red-500/50' : 'border-slate-800 focus:border-cyan-500/50'} outline-none rounded p-3.5 text-slate-300 font-display transition-all [color-scheme:dark] flex-1`}
                value={formData.travelDate}
-               onChange={e => setFormData({...formData, travelDate: e.target.value})}
+               onChange={e => {
+                 setFormData({...formData, travelDate: e.target.value});
+                 if (formErrors.travelDate) setFormErrors({...formErrors, travelDate: null});
+               }}
              />
+             {formErrors.travelDate && <p className="text-red-500/80 text-[10px] uppercase font-display px-1">{formErrors.travelDate}</p>}
           </div>
         </div>
 
-        <button 
-          type="submit"
-          className="w-full py-4 mt-2 bg-slate-800 hover:bg-cyan-600 text-cyan-500 hover:text-white font-display uppercase tracking-widest text-sm rounded transition-all duration-300 border border-cyan-500/30 hover:shadow-[0_0_20px_-5px_rgba(6,182,212,0.4)] flex items-center justify-center gap-3 font-semibold group outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-        >
-           <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
-           Scan Networks
-        </button>
+        <div className="pt-2 flex flex-col items-center">
+          <button 
+            type="submit"
+            disabled={isSearching}
+            className="w-full py-4 bg-slate-800 hover:bg-cyan-600 disabled:opacity-50 disabled:hover:bg-slate-800 text-cyan-500 disabled:text-cyan-700 hover:text-white font-display uppercase tracking-widest text-sm rounded transition-all duration-300 border border-cyan-500/30 disabled:border-slate-700 hover:shadow-[0_0_20px_-5px_rgba(6,182,212,0.4)] disabled:hover:shadow-none flex items-center justify-center gap-3 font-semibold group outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+             {isSearching ? (
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />
+             ) : (
+                <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
+             )}
+             {isSearching ? 'Connecting...' : 'Scan Networks'}
+          </button>
+          
+          {isSearching && (
+             <p className="text-[10px] text-cyan-500/70 font-display uppercase tracking-widest mt-3 animate-pulse">
+               Searching real-time nodes...
+             </p>
+          )}
+        </div>
       </form>
     </div>
   );
