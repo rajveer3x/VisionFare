@@ -31,8 +31,16 @@ const searchRoutes = async (req, res, next) => {
     if (cachedData) {
       return res.status(200).json({ 
         success: true, 
-        source: 'cache', 
-        ...cachedData 
+        data: {
+          count: cachedData.count,
+          topResults: cachedData.topResults,
+          otherResults: cachedData.otherResults
+        },
+        meta: {
+          timestamp: cachedData.fetchedAt,
+          source: 'cache',
+          responseTime: 0
+        }
       });
     }
 
@@ -154,10 +162,19 @@ const searchRoutes = async (req, res, next) => {
     await setCache(cacheKey, responsePayload, 900); // 15 minutes TTL
 
     // STEP 9 — Respond
+    const responseTimeMs = Date.now() - new Date(fetchedAt).getTime();
     return res.status(200).json({
       success: true,
-      source: 'live',
-      ...responsePayload
+      data: {
+        count: responsePayload.count,
+        topResults: responsePayload.topResults,
+        otherResults: responsePayload.otherResults
+      },
+      meta: {
+        timestamp: fetchedAt,
+        source: 'live',
+        responseTime: responseTimeMs
+      }
     });
 
   } catch (err) {

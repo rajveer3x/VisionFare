@@ -1,7 +1,7 @@
 const { AppError } = require('../utils/customErrors');
 
 const errorHandler = (err, req, res, next) => {
-  // Console logging in dev, maybe minimal in prod
+  // Console logging in dev, minimal in prod
   if (process.env.NODE_ENV !== 'production') {
     console.error(err.stack);
   } else {
@@ -11,23 +11,32 @@ const errorHandler = (err, req, res, next) => {
   // Handle derived application errors
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
-      message: err.message,
-      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+      success: false,
+      error: {
+        message: err.message,
+        code: err.name
+      }
     });
   }
 
   // Handle Mongoose / DB specific errors
   if (err.name === 'ValidationError') {
     return res.status(400).json({
-      message: err.message,
-      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+      success: false,
+      error: {
+        message: err.message,
+        code: 'ValidationError'
+      }
     });
   }
 
   if (err.name === 'CastError') {
     return res.status(400).json({
-      message: 'Resource not found',
-      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+      success: false,
+      error: {
+        message: 'Resource not found',
+        code: 'CastError'
+      }
     });
   }
 
@@ -38,9 +47,11 @@ const errorHandler = (err, req, res, next) => {
     : err.message;
 
   res.status(statusCode).json({
-    message,
-    // NEVER leak stack trace in production
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+    success: false,
+    error: {
+      message,
+      code: 'InternalError'
+    }
   });
 };
 

@@ -3,7 +3,7 @@
 VisionFare is a production-grade travel price predictor. It utilizes advanced machine learning techniques to help users forecast and track travel fares, providing an all-in-one platform for comprehensive flight discovery. This monorepo includes a modern and fast React frontend, a resilient Node.js backend, and a Python-powered AI service.
 
 ## Current Status
-**Phase 1 Complete** — Mock data pipeline live. External APIs and AI microservice coming in Phase 2 and 3.
+**Phase 2 Complete** — Live price data from external APIs. Redis caching active. AI microservice integration pending (Phase 3).
 
 ## Architecture
 
@@ -15,8 +15,8 @@ VisionFare is a production-grade travel price predictor. It utilizes advanced ma
                    |
                    v
        +-----------------------+        +=======================+
-       |   Node/Express API    |------->| [Placeholder Phase 2] |
-       |   (search, auth, db)  |        |    RapidAPI (Mock)    |
+       |   Node/Express API    |------->|      RapidAPI         |
+       |   (search, auth, db)  |        |  (Live Travel Data)   |
        +-----------+-----------+        +=======================+
                    |
                    v                            [Placeholder Phase 3]
@@ -45,10 +45,13 @@ VisionFare is a production-grade travel price predictor. It utilizes advanced ma
      ```bash
      cp .env.example .env
      ```
-   - Open `/server/.env` and fill in your `MONGO_URI` and `JWT_SECRET`.
+   - Open `/server/.env` and ensure `MONGO_URI`, `JWT_SECRET`, `RAPIDAPI_KEY`, `RAPIDAPI_HOST`, `REDIS_URL`, and `FRONTEND_ORIGIN` are provided.
    - In `/client`, copy `.env.example` to `.env`.
 
-> **Note on Client Proxies:** The frontend uses Vite. Communication with the backend is handled natively by Axios pointing to the `VITE_API_URL` environment variable (defaulting to `http://localhost:5000`). Make sure your server port matches this configuration.
+> **Note on Client Proxies:** The frontend uses Vite. Communication with the backend is handled natively by Axios pointing to the `VITE_API_URL` environment variable (defaulting to `http://localhost:5000/api`). 
+
+## Caching Strategy
+VisionFare limits expensive and rate-capped 3rd-party aggregate queries by aggressively routing searches through a 900 second (15-minute) TTL cache hosted via ioredis. The infrastructure degrades safely falling back to live network querying dynamically.
 
 ## Running Locally
 

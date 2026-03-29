@@ -19,14 +19,17 @@ app.use(cors({
   credentials: true
 }));
 
-// Body Parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+
+// Body Parsing - Limit payload size to 10kb to prevent Denial of Service via huge payload attacks
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // Logging
 app.use(morgan('dev'));
 
-// Rate Limiting
+// Global Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
@@ -34,6 +37,12 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Data Sanitization
+// prevents MongoDB operator injection via req.body/query/params (e.g., {"email": {"$gt": ""}})
+app.use(mongoSanitize());
+
+// strips XSS (HTML/script injection) from all incoming strings
+app.use(xss());
 
 // API Routes
 const routes = require('./routes/index');

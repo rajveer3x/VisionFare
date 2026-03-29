@@ -65,15 +65,15 @@ export default function ResultsPage() {
              />
           )}
 
-          {data?.success && data.topResults && (
+          {data?.success && data.data?.topResults && (
             <div className="space-y-8">
                
                <SearchMeta 
-                 count={data.count} 
+                 count={data.data.count} 
                  origin={query.origin} 
                  destination={query.destination} 
                  travelDate={query.travelDate} 
-                 source={data.source} 
+                 source={data.meta.source} 
                />
 
                <div className="space-y-4">
@@ -81,20 +81,20 @@ export default function ResultsPage() {
                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_2px_rgba(34,211,238,0.5)]"></span>
                    Optimal Trajectories
                  </h2>
-                 {data.topResults.map(trip => (
+                 {data.data.topResults.map(trip => (
                    <div key={trip.externalId || trip.id}>
                      <ResultCard trip={trip} />
                    </div>
                  ))}
                </div>
                
-               {data.otherResults && data.otherResults.length > 0 && (
+               {data.data.otherResults && data.data.otherResults.length > 0 && (
                  <div className="space-y-4 pt-10 border-t border-slate-800 relative">
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-darkBase px-4 text-xs font-display text-slate-500 tracking-widest uppercase">
                       More Options
                     </div>
                     
-                    {data.otherResults.map(trip => (
+                    {data.data.otherResults.map(trip => (
                       <div key={trip.externalId || trip.id} className="opacity-60 saturate-50 hover:saturate-100 hover:opacity-100 transition-all duration-300">
                         {/* Wipe badges for remaining options safely mapping to default nulls/UNDEFINED expectations */}
                         <ResultCard trip={{ ...trip, aiRecommendation: 'NOT_ANALYZED', aiConfidence: null }} />
